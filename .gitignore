@@ -1,4 +1,13 @@
 
-code/
-
 images/style/
+imagenet-vgg-verydeep-19.mat
+
+neural_style.py
+
+stylize.py
+
+stylize.pyc
+
+vgg.py
+
+vgg.pyc
