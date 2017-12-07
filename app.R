@@ -61,17 +61,18 @@ ui <- fluidPage(theme = shinytheme("cerulean"),
 server <- function(input, output, session) {
     
     result_dir <- tempdir()
-    result_file <- paste0(result_dir, "/test.png")
+    result_file <- tempfile(fileext = ".png", tmpdir = result_dir)
     
-    sapply(file.path(result_dir, dir(result_dir)), file.remove)
     file.copy("images/white.png", result_file)
     
-    values <- reactiveValues(content_ext = "png", content_file = "", style_ext = "png", style_file = "", iteration = -1)
+    values <- reactiveValues(content_ext = "png", content_file = tempfile(tmpdir = result_dir), style_ext = "png", style_file = tempfile(tmpdir = result_dir), iteration = -1)
     
     observe({
         invalidateLater(500, session)
         
-        myfiles <- dir(result_dir)[grep("checkpoint__", dir(result_dir))]
+        myfiles <- dir(result_dir)[grep(paste0(basename(values$content_file), "_", basename(values$style_file), "_checkpoint__"), dir(result_dir))]
+        
+        cat(result_dir)
         mysplit <- as.numeric(sapply(strsplit(gsub(".png", "", myfiles), "__"), `[`, 2))
         
         newest <- myfiles[which.max(mysplit)]
@@ -87,13 +88,24 @@ server <- function(input, output, session) {
     
     neural_result <- reactiveFileReader(500, session, result_file, load.image)
     
+    observeEvent(input$content_upload, {
+        cat("New content tempfile!\n")
+        
+        values$iterations <- -1
+        values$content_file <- tempfile(tmpdir = result_dir)
+    })
+    
+    observeEvent(input$style_upload, {
+        cat("New tempfile!\n")
+        
+        values$iterations <- -1
+        values$style_file <- tempfile(tmpdir = result_dir)
+    })
+    
     content_path <- reactive({
         if (is.null(input$content_upload)) return(NULL)
         
         myimg_path <- input$content_upload$datapath
-        
-        sapply(file.path(result_dir, dir(result_dir)), file.remove)
-        values$iteration <- -1
         
         return(myimg_path)
     })
@@ -102,8 +114,6 @@ server <- function(input, output, session) {
         if (is.null(content_path())) return(NULL)
         
         myimg_path <- content_path()
-        
-        mytempfile <- tempfile()
         
         fileext <- tools::file_ext(myimg_path)
         values$content_ext <- fileext
@@ -114,10 +124,9 @@ server <- function(input, output, session) {
         new_img <- resize(myimg, round(width(myimg) / width_fac), round(height(myimg) / width_fac))
         save.image(new_img, file = myimg_path)
         
-        file.copy(myimg_path, mytempfile)
-        values$content_file <- mytempfile
+        file.copy(myimg_path, values$content_file)
         
-        return(newimg)
+        return(new_img)
     })
     
     output$content_img <- renderImage({
@@ -153,9 +162,6 @@ server <- function(input, output, session) {
             myimg_path <- input$style
         }
         
-        sapply(file.path(result_dir, dir(result_dir)), file.remove)
-        values$iteration <- -1
-        
         return(myimg_path)
     })
     
@@ -164,9 +170,7 @@ server <- function(input, output, session) {
         
         myimg_path <- style_path()
         
-        mytempfile <- tempfile()
-        file.copy(myimg_path, mytempfile)
-        values$style_file <- mytempfile
+        file.copy(myimg_path, values$style_file)
         
         fileext <- tools::file_ext(myimg_path)
         values$style_ext <- fileext
@@ -202,7 +206,7 @@ server <- function(input, output, session) {
         if (!is.null(content_image()) && !is.null(style_image())) {
             shinyjs::alert("Neural art algorithm started! Please wait and your results will begin to appear...")
             
-            system(paste0("source ", tensorflow_activate_path, " && python neural_style.py --iterations 1050 --checkpoint-output '", result_dir, "/checkpoint__%s.png' --checkpoint-iterations 50 --content ", content_path(), " --styles ", style_path(), " --output ", file.path(result_dir, "final.png")), wait = FALSE)
+            system(paste0("source ", tensorflow_activate_path, " && python neural_style.py --iterations 1050 --checkpoint-output '", result_dir, "/", basename(values$content_file), "_", basename(values$style_file), "_checkpoint__%s.png' --checkpoint-iterations 50 --content ", content_path(), " --styles ", style_path(), " --output ", file.path(result_dir, "final.png")), wait = FALSE)
         }
     })
     
