@@ -4,6 +4,7 @@ library(jpeg)
 library(png)
 library(shinycssloaders)
 library(shinyjs)
+library(imager)
 
 tensorflow_activate_path <- "~/Documents/Python/tensorflow/bin/activate"
 
@@ -14,47 +15,47 @@ style <- file.path("images", "style", dir("images/style"))
 names(style) <- tools::toTitleCase(gsub(".jpg|.png", "", basename(style)))
 
 ui <- fluidPage(theme = shinytheme("cerulean"),
-   
-   titlePanel("Neural Art Image Creator"),
-   
-   useShinyjs(),
-   
-   sidebarLayout(
-      sidebarPanel(
-          a(href = "https://oaiti.org", target = "_blank", img(src = "images/oaiti_transparent.png", width = "135")),
-          h4("About"),
-          HTML("This application uses a neural art algorithm by Anish Athalye called <a href='https://github.com/anishathalye/neural-style' target='_blank'>Neural Style</a>. This algorithm slowly blends a content image and a style image into a resulting output image. Currently we support <b>PNG</b> or <b>JPEG</b> files only."),
-          
-          hr(),
-          
-          h4("Configuration"),
-          
-          fileInput("content_upload", "Upload Content Image"),
-          selectInput("style", "Choose Style Image", choices = c("Upload Your Own", style)),
-          conditionalPanel(condition = "input.style == 'Upload Your Own'",
-                           fileInput("style_upload", "Upload Style Image")
-          )
-      ),
-      
-      mainPanel(
-          fluidRow(
-              column(6,
-                      h4("Content Image"),
-                      imageOutput("content_img", height = "250px")
-              ),
-              column(6,
-                      h4("Style Image"),
-                      withSpinner(imageOutput("style_img", height = "250px"))
-              )
-          ),
-          
-          hr(),
-          
-          h3("Neural Art Image"),
-          textOutput("iteration"),
-          imageOutput("result_img", height = "300px")
-      )
-   )
+                
+                titlePanel("Neural Art Image Creator"),
+                
+                useShinyjs(),
+                
+                sidebarLayout(
+                    sidebarPanel(
+                        a(href = "https://oaiti.org", target = "_blank", img(src = "images/oaiti_transparent.png", width = "135")),
+                        h4("About"),
+                        HTML("This application uses a neural art algorithm by Anish Athalye called <a href='https://github.com/anishathalye/neural-style' target='_blank'>Neural Style</a>. This algorithm slowly blends a content image and a style image into a resulting output image. Currently we support <b>PNG</b> or <b>JPEG</b> files only."),
+                        
+                        hr(),
+                        
+                        h4("Configuration"),
+                        
+                        fileInput("content_upload", "Upload Content Image"),
+                        selectInput("style", "Choose Style Image", choices = c("Upload Your Own", style)),
+                        conditionalPanel(condition = "input.style == 'Upload Your Own'",
+                                         fileInput("style_upload", "Upload Style Image")
+                        )
+                    ),
+                    
+                    mainPanel(
+                        fluidRow(
+                            column(6,
+                                   h4("Content Image"),
+                                   imageOutput("content_img", height = "250px")
+                            ),
+                            column(6,
+                                   h4("Style Image"),
+                                   withSpinner(imageOutput("style_img", width = "250px"))
+                            )
+                        ),
+                        
+                        hr(),
+                        
+                        h3("Neural Art Image"),
+                        textOutput("iteration"),
+                        imageOutput("result_img", width = "350px")
+                    )
+                )
 )
 
 server <- function(input, output, session) {
@@ -79,12 +80,12 @@ server <- function(input, output, session) {
             values$iteration <- max(mysplit)
             
             test <- file.path(result_dir, newest)
-
+            
             file.copy(test, result_file, overwrite = TRUE)
         }
     })
-
-    neural_result <- reactiveFileReader(500, session, result_file, readPNG)
+    
+    neural_result <- reactiveFileReader(500, session, result_file, load.image)
     
     content_path <- reactive({
         if (is.null(input$content_upload)) return(NULL)
@@ -103,14 +104,20 @@ server <- function(input, output, session) {
         myimg_path <- content_path()
         
         mytempfile <- tempfile()
-        file.copy(myimg_path, mytempfile)
-        values$content_file <- mytempfile
         
         fileext <- tools::file_ext(myimg_path)
         values$content_ext <- fileext
-        myfunc <- ifelse(fileext == "jpg", readJPEG, readPNG)
         
-        return(myfunc(myimg_path))
+        myimg <- load.image(myimg_path)
+        width_fac <- max(1, width(myimg) / 500)
+        
+        new_img <- resize(myimg, round(width(myimg) / width_fac), round(height(myimg) / width_fac))
+        save.image(new_img, file = myimg_path)
+        
+        file.copy(myimg_path, mytempfile)
+        values$content_file <- mytempfile
+        
+        return(newimg)
     })
     
     output$content_img <- renderImage({
@@ -126,8 +133,8 @@ server <- function(input, output, session) {
         }
         
         myratio <- dim(myimg)[1] / dim(myimg)[2]
-        width <- 400
-        height <- min(round(width * myratio), 250)
+        height <- min(250, height(myimg))
+        width <- min(round(height * myratio), width(myimg))
         
         list(
             src = values$content_file,
@@ -163,9 +170,8 @@ server <- function(input, output, session) {
         
         fileext <- tools::file_ext(myimg_path)
         values$style_ext <- fileext
-        myfunc <- ifelse(fileext == "jpg", readJPEG, readPNG)
         
-        return(myfunc(myimg_path))
+        return(load.image(myimg_path))
     })
     
     output$style_img <- renderImage({
@@ -179,10 +185,10 @@ server <- function(input, output, session) {
                 height = "0px"
             )
         }
-
+        
         myratio <- dim(myimg)[1] / dim(myimg)[2]
-        width <- 400
-        height <- min(round(width * myratio), 250)
+        height <- min(250, height(myimg))
+        width <- min(round(height * myratio), width(myimg))
         
         list(
             src = values$style_file,
@@ -213,8 +219,8 @@ server <- function(input, output, session) {
         myimg <- neural_result()
         
         myratio <- dim(myimg)[1] / dim(myimg)[2]
-        width <- 800
-        height <- min(round(width * myratio), 300)
+        height <- min(350, height(myimg))
+        width <- min(round(height * myratio), width(myimg))
         
         list(
             src = result_file,
@@ -227,7 +233,7 @@ server <- function(input, output, session) {
     output$iteration <- renderText({
         return(paste("Iteration:", values$iteration))
     })
-
+    
 }
 
 shinyApp(ui = ui, server = server)
