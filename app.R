@@ -13,6 +13,12 @@ addResourcePath("images", "images")
 style <- file.path("images", "style", dir("images/style"))
 names(style) <- tools::toTitleCase(gsub(".jpg|.png", "", basename(style)))
 
+result_dir <- tempdir()
+result_file <- paste0(result_dir, "/test.png")
+
+sapply(file.path(result_dir, dir(result_dir)), file.remove)
+file.copy("images/white.png", result_file)
+
 ui <- fluidPage(theme = shinytheme("cerulean"),
    
    titlePanel("Neural Art Image Creator"),
@@ -59,12 +65,6 @@ ui <- fluidPage(theme = shinytheme("cerulean"),
 
 server <- function(input, output, session) {
     
-    result_dir <- tempdir()
-    result_file <- paste0(result_dir, "/test.png")
-    
-    sapply(file.path(result_dir, dir(result_dir)), file.remove)
-    file.copy("images/white.png", result_file)
-    
     values <- reactiveValues(content_ext = "png", content_file = "", style_ext = "png", style_file = "", iteration = -1)
     
     observe({
@@ -90,6 +90,9 @@ server <- function(input, output, session) {
         if (is.null(input$content_upload)) return(NULL)
         
         myimg_path <- input$content_upload$datapath
+        
+        sapply(file.path(result_dir, dir(result_dir)), file.remove)
+        values$iteration <- -1
         
         return(myimg_path)
     })
@@ -143,6 +146,9 @@ server <- function(input, output, session) {
             myimg_path <- input$style
         }
         
+        sapply(file.path(result_dir, dir(result_dir)), file.remove)
+        values$iteration <- -1
+        
         return(myimg_path)
     })
     
@@ -190,7 +196,7 @@ server <- function(input, output, session) {
         if (!is.null(content_image()) && !is.null(style_image())) {
             shinyjs::alert("Neural art algorithm started! Please wait and your results will begin to appear...")
             
-            system(paste0("source ", tensorflow_activate_path, " && cd code && python neural_style.py --checkpoint-output '", result_dir, "/checkpoint__%s.png' --checkpoint-iterations 5 --content ", content_path(), " --styles ", style_path(), " --output '", result_file, "'"), wait = FALSE)
+            system(paste0("source ", tensorflow_activate_path, " && cd code && python neural_style.py --iterations 1050 --checkpoint-output '", result_dir, "/checkpoint__%s.png' --checkpoint-iterations 5 --content ", content_path(), " --styles ", style_path(), " --output ", file.path(result_dir, "final.png")), wait = FALSE)
         }
     })
     
