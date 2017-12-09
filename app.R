@@ -3,7 +3,7 @@ library(shinythemes)
 library(jpeg)
 library(png)
 library(shinycssloaders)
-library(shinyjs)
+library(shinyBS)
 library(imager)
 
 tensorflow_activate_path <- "~/Documents/Python/tensorflow/bin/activate"
@@ -17,8 +17,6 @@ names(style) <- tools::toTitleCase(gsub(".jpg|.png", "", basename(style)))
 ui <- fluidPage(theme = shinytheme("cerulean"),
                 
                 titlePanel("Neural Art Image Creator"),
-                
-                useShinyjs(),
                 
                 sidebarLayout(
                     sidebarPanel(
@@ -34,10 +32,17 @@ ui <- fluidPage(theme = shinytheme("cerulean"),
                         selectInput("style", "Choose Style Image", choices = c("Upload Your Own", style)),
                         conditionalPanel(condition = "input.style == 'Upload Your Own'",
                                          fileInput("style_upload", "Upload Style Image")
-                        )
+                        ),
+                        sliderInput("iterations", "Iterations", min = 100, max = 2000, step = 100, value = 1000),
+                        actionButton("begin", "Begin Algorithm")
                     ),
                     
                     mainPanel(
+                        bsModal(id = 'beginModal', title = 'Neural Art Algorithm Started', trigger = '',
+                                size = 'medium', 'The neural art algorithm has started. The results will be displayed every 50 iterations below, along with a progress bar.'),
+                        bsModal(id = 'endModal', title = 'Neural Art Algorithm Completed', trigger = '',
+                                size = 'medium', 'The neural art algorithm has completed. If you are satisfied, you can download the result. Otherwise, you can try a new style image or specify a new iterations value and try again.'),
+                        
                         fluidRow(
                             column(6,
                                    h4("Content Image"),
@@ -52,7 +57,7 @@ ui <- fluidPage(theme = shinytheme("cerulean"),
                         hr(),
                         
                         h3("Neural Art Image"),
-                        textOutput("iteration"),
+                        h4(uiOutput("iteration")),
                         imageOutput("result_img", width = "350px")
                     )
                 )
@@ -65,14 +70,12 @@ server <- function(input, output, session) {
     
     file.copy("images/white.png", result_file)
     
-    values <- reactiveValues(content_ext = "png", content_file = tempfile(tmpdir = result_dir), style_ext = "png", style_file = tempfile(tmpdir = result_dir), iteration = -1)
+    values <- reactiveValues(content_ext = "png", content_file = tempfile(tmpdir = result_dir), style_ext = "png", style_file = tempfile(tmpdir = result_dir), iteration = -1, total_iterations = 1000)
     
     observe({
         invalidateLater(500, session)
         
         myfiles <- dir(result_dir)[grep(paste0(basename(values$content_file), "_", basename(values$style_file), "_checkpoint__"), dir(result_dir))]
-        
-        cat(result_dir)
         mysplit <- as.numeric(sapply(strsplit(gsub(".png", "", myfiles), "__"), `[`, 2))
         
         newest <- myfiles[which.max(mysplit)]
@@ -86,19 +89,34 @@ server <- function(input, output, session) {
         }
     })
     
+    observe({
+        if (values$iteration == values$total_iterations) {
+            toggleModal(session, "endModal", toggle = "open")
+        }
+    })
+    
     neural_result <- reactiveFileReader(500, session, result_file, load.image)
     
-    observeEvent(input$content_upload, {
-        cat("New content tempfile!\n")
+    observeEvent(input$begin, { 
+        values$iteration <- -1
+        values$total_iterations <- input$iterations
         
-        values$iterations <- -1
+        if (!is.null(content_image()) && !is.null(style_image())) {
+            toggleModal(session, "beginModal", toggle = "open")
+            
+            system(paste0("source ", tensorflow_activate_path, " && python neural_style.py --iterations ", values$total_iterations + 50, " --checkpoint-output '", result_dir, "/", basename(values$content_file), "_", basename(values$style_file), "_checkpoint__%s.png' --checkpoint-iterations 50 --content ", content_path(), " --styles ", style_path(), " --output ", file.path(result_dir, "final.png")), wait = FALSE)
+        }
+    })
+    
+    observeEvent(input$content_upload, {
         values$content_file <- tempfile(tmpdir = result_dir)
     })
     
     observeEvent(input$style_upload, {
-        cat("New tempfile!\n")
-        
-        values$iterations <- -1
+        values$style_file <- tempfile(tmpdir = result_dir)
+    })
+    
+    observeEvent(input$style, {
         values$style_file <- tempfile(tmpdir = result_dir)
     })
     
@@ -202,14 +220,6 @@ server <- function(input, output, session) {
         )
     })
     
-    observe({
-        if (!is.null(content_image()) && !is.null(style_image())) {
-            shinyjs::alert("Neural art algorithm started! Please wait and your results will begin to appear...")
-            
-            system(paste0("source ", tensorflow_activate_path, " && python neural_style.py --iterations 1050 --checkpoint-output '", result_dir, "/", basename(values$content_file), "_", basename(values$style_file), "_checkpoint__%s.png' --checkpoint-iterations 50 --content ", content_path(), " --styles ", style_path(), " --output ", file.path(result_dir, "final.png")), wait = FALSE)
-        }
-    })
-    
     output$result_img <- renderImage({
         if (values$iteration < 0) {
             return(list(
@@ -234,8 +244,8 @@ server <- function(input, output, session) {
         )
     })
     
-    output$iteration <- renderText({
-        return(paste("Iteration:", values$iteration))
+    output$iteration <- renderUI({
+        return(HTML(paste0("Iteration: ", values$iteration, "<br>Progress Complete: ", round(100 * values$iteration / values$total_iterations), "%")))
     })
     
 }
