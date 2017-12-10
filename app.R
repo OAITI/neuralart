@@ -4,6 +4,7 @@ library(jpeg)
 library(png)
 library(shinycssloaders)
 library(shinyBS)
+library(shinyjs)
 library(imager)
 
 tensorflow_activate_path <- "~/Documents/Python/tensorflow/bin/activate"
@@ -16,13 +17,15 @@ names(style) <- tools::toTitleCase(gsub(".jpg|.png", "", basename(style)))
 
 ui <- fluidPage(theme = shinytheme("cerulean"),
                 
+                useShinyjs(),
+                
                 titlePanel("Neural Art Image Creator"),
                 
                 sidebarLayout(
                     sidebarPanel(
                         a(href = "https://oaiti.org", target = "_blank", img(src = "images/oaiti_transparent.png", width = "135")),
                         h4("About"),
-                        HTML("This application uses a neural art algorithm by Anish Athalye called <a href='https://github.com/anishathalye/neural-style' target='_blank'>Neural Style</a>. This algorithm slowly blends a content image and a style image into a resulting output image. Currently we support <b>PNG</b> or <b>JPEG</b> files only."),
+                        HTML("This application uses a neural art algorithm by Anish Athalye called <a href='https://github.com/anishathalye/neural-style' target='_blank'>Neural Style</a>. This algorithm slowly blends a content image and a style image into a resulting output image. Currently we support <b>PNG</b> or <b>JPEG</b> files only. Images are downsampled to a maximum width of 500px to save computational resources."),
                         
                         hr(),
                         
@@ -34,7 +37,10 @@ ui <- fluidPage(theme = shinytheme("cerulean"),
                                          fileInput("style_upload", "Upload Style Image")
                         ),
                         sliderInput("iterations", "Iterations", min = 100, max = 2000, step = 100, value = 1000),
-                        actionButton("begin", "Begin Algorithm")
+                        
+                        hr(),
+                        
+                        shinyjs::disabled(actionButton("begin", "Begin Algorithm", icon = icon("picture-o")))
                     ),
                     
                     mainPanel(
@@ -42,6 +48,8 @@ ui <- fluidPage(theme = shinytheme("cerulean"),
                                 size = 'medium', 'The neural art algorithm has started. The results will be displayed every 50 iterations below, along with a progress bar.'),
                         bsModal(id = 'endModal', title = 'Neural Art Algorithm Completed', trigger = '',
                                 size = 'medium', 'The neural art algorithm has completed. If you are satisfied, you can download the result. Otherwise, you can try a new style image or specify a new iterations value and try again.'),
+                        bsModal(id = 'termModal', title = 'Neural Art Algorithm Terminated', trigger = '',
+                                size = 'medium', 'The neural art algorithm has been terminated early. If you are satisfied, you can download the result. Otherwise, you can try a new style image or specify a new iterations value and try again.'),
                         
                         fluidRow(
                             column(6,
@@ -57,8 +65,10 @@ ui <- fluidPage(theme = shinytheme("cerulean"),
                         hr(),
                         
                         h3("Neural Art Image"),
-                        h4(uiOutput("iteration")),
-                        imageOutput("result_img", width = "350px")
+                        conditionalPanel(condition = "input.begin", 
+                                         h4(uiOutput("iteration")),
+                                         imageOutput("result_img", width = "350px")
+                        )
                     )
                 )
 )
@@ -70,7 +80,7 @@ server <- function(input, output, session) {
     
     file.copy("images/white.png", result_file)
     
-    values <- reactiveValues(content_ext = "png", content_file = tempfile(tmpdir = result_dir), style_ext = "png", style_file = tempfile(tmpdir = result_dir), iteration = -1, total_iterations = 1000)
+    values <- reactiveValues(content_ext = "png", content_file = "", style_ext = "png", style_file = "", iteration = -1, total_iterations = 1000, begin_flag = TRUE)
     
     observe({
         invalidateLater(500, session)
@@ -80,7 +90,13 @@ server <- function(input, output, session) {
         
         newest <- myfiles[which.max(mysplit)]
         
-        if (length(mysplit) > 0 && values$iteration < max(mysplit)) {
+        if (values$iteration == values$total_iterations - 50) {
+            final_file <- file.path(result_dir, paste0(basename(values$content_file), "_", basename(values$style_file), "_final.png"))
+            if (file.exists(final_file)) {
+                file.copy(final_file, result_file, overwrite = TRUE)
+                values$iteration <- values$total_iterations
+            }
+        } else if (length(mysplit) > 0 && values$iteration < max(mysplit)) {
             values$iteration <- max(mysplit)
             
             test <- file.path(result_dir, newest)
@@ -92,32 +108,51 @@ server <- function(input, output, session) {
     observe({
         if (values$iteration == values$total_iterations) {
             toggleModal(session, "endModal", toggle = "open")
+            updateActionButton(session, "begin", label = "Begin Algorithm")
+            values$begin_flag <- TRUE
         }
     })
     
     neural_result <- reactiveFileReader(500, session, result_file, load.image)
     
     observeEvent(input$begin, { 
-        values$iteration <- -1
-        values$total_iterations <- input$iterations
-        
-        if (!is.null(content_image()) && !is.null(style_image())) {
-            toggleModal(session, "beginModal", toggle = "open")
+        if (values$begin_flag) {
+            if (!is.null(content_image()) && !is.null(style_image())) {
+                values$begin_flag <- FALSE
+                updateActionButton(session, "begin", label = "End Algorithm")
+                values$iteration <- -1
+                values$total_iterations <- input$iterations
+                
+                toggleModal(session, "beginModal", toggle = "open")
+                
+                system(paste0("source ", tensorflow_activate_path, " && python neural_style.py --iterations ", values$total_iterations, " --checkpoint-output '", result_dir, "/", basename(values$content_file), "_", basename(values$style_file), "_checkpoint__%s.png' --checkpoint-iterations 50 --content ", content_path(), " --styles ", style_path(), " --output ", result_dir, "/", basename(values$content_file), "_", basename(values$style_file), "_final.png"), wait = FALSE)
+            }
+        } else {
+            values$begin_flag <- TRUE
+            updateActionButton(session, "begin", label = "Begin Algorithm")
             
-            system(paste0("source ", tensorflow_activate_path, " && python neural_style.py --iterations ", values$total_iterations + 50, " --checkpoint-output '", result_dir, "/", basename(values$content_file), "_", basename(values$style_file), "_checkpoint__%s.png' --checkpoint-iterations 50 --content ", content_path(), " --styles ", style_path(), " --output ", file.path(result_dir, "final.png")), wait = FALSE)
+            toggleModal(session, "termModal", toggle = "open")
+            
+            system("killall python")
         }
     })
     
     observeEvent(input$content_upload, {
         values$content_file <- tempfile(tmpdir = result_dir)
-    })
+    }, ignoreInit = TRUE)
     
     observeEvent(input$style_upload, {
         values$style_file <- tempfile(tmpdir = result_dir)
-    })
+    }, ignoreInit = TRUE)
     
     observeEvent(input$style, {
         values$style_file <- tempfile(tmpdir = result_dir)
+    }, ignoreInit = TRUE)
+    
+    observe({
+        if (values$content_file != "" && values$style_file != "") {
+            shinyjs::enable("begin")
+        }
     })
     
     content_path <- reactive({
@@ -151,12 +186,12 @@ server <- function(input, output, session) {
         myimg <- content_image()
         
         if (is.null(myimg)) {
-            list(
+            return(list(
                 src = "images/white.png",
                 contentType = "image/png",
                 width = "0px",
                 height = "0px"
-            )
+            ))
         }
         
         myratio <- dim(myimg)[1] / dim(myimg)[2]
@@ -200,12 +235,12 @@ server <- function(input, output, session) {
         myimg <- style_image()
         
         if (is.null(myimg)) {
-            list(
+            return(list(
                 src = "images/white.png",
                 contentType = "image/png",
                 width = "0px",
                 height = "0px"
-            )
+            ))
         }
         
         myratio <- dim(myimg)[1] / dim(myimg)[2]
