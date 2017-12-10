@@ -95,6 +95,9 @@ server <- function(input, output, session) {
             if (file.exists(final_file)) {
                 file.copy(final_file, result_file, overwrite = TRUE)
                 values$iteration <- values$total_iterations
+                
+                files_checkpoint <- file.path(result_dir, myfiles)
+                sapply(files_checkpoint, file.remove)
             }
         } else if (length(mysplit) > 0 && values$iteration < max(mysplit)) {
             values$iteration <- max(mysplit)
@@ -134,6 +137,9 @@ server <- function(input, output, session) {
             toggleModal(session, "termModal", toggle = "open")
             
             system("killall python")
+            
+            myfiles <- file.path(result_dir, dir(result_dir)[grep(paste0(basename(values$content_file), "_", basename(values$style_file), "_checkpoint__"), dir(result_dir))])
+            sapply(myfiles, file.remove)
         }
     })
     
