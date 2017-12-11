@@ -40,16 +40,25 @@ ui <- fluidPage(theme = shinytheme("cerulean"),
                         
                         hr(),
                         
-                        shinyjs::disabled(actionButton("begin", "Begin Algorithm", icon = icon("picture-o")))
+                        fluidRow(
+                            column(6,
+                                   shinyjs::disabled(actionButton("begin", "Begin Algorithm", icon = icon("picture-o")))
+                            ),
+                            column(6,
+                                   shinyjs::disabled(downloadButton("download", "Download Image"))
+                            )
+                        )
                     ),
                     
                     mainPanel(
                         bsModal(id = 'beginModal', title = 'Neural Art Algorithm Started', trigger = '',
-                                size = 'medium', 'The neural art algorithm has started. The results will be displayed every 50 iterations below, along with a progress bar.'),
+                                size = 'medium', 'The neural art algorithm has started. The results will be displayed every 10 iterations below, along with a progress bar.'),
                         bsModal(id = 'endModal', title = 'Neural Art Algorithm Completed', trigger = '',
                                 size = 'medium', 'The neural art algorithm has completed. If you are satisfied, you can download the result. Otherwise, you can try a new style image or specify a new iterations value and try again.'),
                         bsModal(id = 'termModal', title = 'Neural Art Algorithm Terminated', trigger = '',
                                 size = 'medium', 'The neural art algorithm has been terminated early. If you are satisfied, you can download the result. Otherwise, you can try a new style image or specify a new iterations value and try again.'),
+                        bsModal(id = 'waitModal', title = 'Neural Art Algorithm Cannot Be Started', trigger = '',
+                                size = 'medium', 'Sorry, but there is a current neural art process computing. Please wait a minute and then try again.'),
                         
                         fluidRow(
                             column(6,
@@ -78,33 +87,36 @@ server <- function(input, output, session) {
     result_dir <- tempdir()
     result_file <- tempfile(fileext = ".png", tmpdir = result_dir)
     
-    file.copy("images/white.png", result_file)
+    file_copy_res <- file.copy("images/white.png", result_file, overwrite = TRUE)
     
     values <- reactiveValues(content_ext = "png", content_file = "", style_ext = "png", style_file = "", iteration = -1, total_iterations = 1000, begin_flag = TRUE)
     
     observe({
-        invalidateLater(500, session)
+        invalidateLater(100, session)
         
         myfiles <- dir(result_dir)[grep(paste0(basename(values$content_file), "_", basename(values$style_file), "_checkpoint__"), dir(result_dir))]
         mysplit <- as.numeric(sapply(strsplit(gsub(".png", "", myfiles), "__"), `[`, 2))
+        #mysplit <- mysplit[-which.max(mysplit)]
         
         newest <- myfiles[which.max(mysplit)]
-        
-        if (values$iteration == values$total_iterations - 50) {
+        Sys.sleep(.1)
+        if (values$iteration == values$total_iterations - 10) {
             final_file <- file.path(result_dir, paste0(basename(values$content_file), "_", basename(values$style_file), "_final.png"))
             if (file.exists(final_file)) {
+                Sys.sleep(.1)
+                
                 file.copy(final_file, result_file, overwrite = TRUE)
                 values$iteration <- values$total_iterations
                 
                 files_checkpoint <- file.path(result_dir, myfiles)
                 sapply(files_checkpoint, file.remove)
             }
-        } else if (length(mysplit) > 0 && values$iteration < max(mysplit)) {
+        } else if (length(mysplit) > 0 && !is.na(max(mysplit)) && values$iteration < max(mysplit)) {
             values$iteration <- max(mysplit)
             
-            test <- file.path(result_dir, newest)
+            checkpoint_img <- file.path(result_dir, newest)
             
-            file.copy(test, result_file, overwrite = TRUE)
+            file.copy(checkpoint_img, result_file, overwrite = TRUE)
         }
     })
     
@@ -116,11 +128,14 @@ server <- function(input, output, session) {
         }
     })
     
-    neural_result <- reactiveFileReader(500, session, result_file, load.image)
+    neural_result <- reactiveFileReader(100, session, result_file, load.image)
     
     observeEvent(input$begin, { 
         if (values$begin_flag) {
-            if (!is.null(content_image()) && !is.null(style_image())) {
+            other_processes <- system("ps -u shiny | grep python", intern = TRUE)
+            if (length(other_processes) > 0) {
+                toggleModal(session, "waitModal", toggle = "open")
+            } else if (!is.null(content_image()) && !is.null(style_image())) {
                 values$begin_flag <- FALSE
                 updateActionButton(session, "begin", label = "End Algorithm")
                 values$iteration <- -1
@@ -128,7 +143,7 @@ server <- function(input, output, session) {
                 
                 toggleModal(session, "beginModal", toggle = "open")
                 
-                system(paste0("source ", tensorflow_activate_path, " && python neural_style.py --iterations ", values$total_iterations, " --checkpoint-output '", result_dir, "/", basename(values$content_file), "_", basename(values$style_file), "_checkpoint__%s.png' --checkpoint-iterations 50 --content ", content_path(), " --styles ", style_path(), " --output ", result_dir, "/", basename(values$content_file), "_", basename(values$style_file), "_final.png"), wait = FALSE)
+                system(paste0("source ", tensorflow_activate_path, " && python neural_style.py --iterations ", values$total_iterations, " --checkpoint-output '", result_dir, "/", basename(values$content_file), "_", basename(values$style_file), "_checkpoint__%s.png' --checkpoint-iterations 10 --content ", content_path(), " --styles ", style_path(), " --output ", result_dir, "/", basename(values$content_file), "_", basename(values$style_file), "_final.png"), wait = FALSE)
             }
         } else {
             values$begin_flag <- TRUE
@@ -138,7 +153,7 @@ server <- function(input, output, session) {
             
             system("killall python")
             
-            myfiles <- file.path(result_dir, dir(result_dir)[grep(paste0(basename(values$content_file), "_", basename(values$style_file), "_checkpoint__"), dir(result_dir))])
+            myfiles <- file.path(result_dir, dir(result_dir)[grep("checkpoint__", dir(result_dir))])
             sapply(myfiles, file.remove)
         }
     })
@@ -183,7 +198,7 @@ server <- function(input, output, session) {
         new_img <- resize(myimg, round(width(myimg) / width_fac), round(height(myimg) / width_fac))
         save.image(new_img, file = myimg_path)
         
-        file.copy(myimg_path, values$content_file)
+        file.copy(myimg_path, values$content_file, overwrite = TRUE)
         
         return(new_img)
     })
@@ -210,7 +225,7 @@ server <- function(input, output, session) {
             width = paste0(width, "px"),
             height = paste0(height, "px")
         )
-    })
+    }, deleteFile = FALSE)
     
     style_path <- reactive({
         if (input$style == "Upload Your Own") {
@@ -229,7 +244,7 @@ server <- function(input, output, session) {
         
         myimg_path <- style_path()
         
-        file.copy(myimg_path, values$style_file)
+        file.copy(myimg_path, values$style_file, overwrite = TRUE)
         
         fileext <- tools::file_ext(myimg_path)
         values$style_ext <- fileext
@@ -259,10 +274,12 @@ server <- function(input, output, session) {
             width = paste0(width, "px"),
             height = paste0(height, "px")
         )
-    })
+    }, deleteFile = FALSE)
     
     output$result_img <- renderImage({
         if (values$iteration < 0) {
+            shinyjs::disable("download")
+            
             return(list(
                 src = "images/white.png",
                 contentType = "image/png",
@@ -270,6 +287,8 @@ server <- function(input, output, session) {
                 height = "0px"
             ))
         }
+        
+        shinyjs::enable("download")
         
         myimg <- neural_result()
         
@@ -283,12 +302,21 @@ server <- function(input, output, session) {
             width = paste0(width, "px"),
             height = paste0(height, "px")
         )
-    })
+    }, deleteFile = FALSE)
     
     output$iteration <- renderUI({
-        return(HTML(paste0("Iteration: ", values$iteration, "<br>Progress Complete: ", round(100 * values$iteration / values$total_iterations), "%")))
+        myit <- values$iteration
+        if (myit == -1) myit <- "Process starting, please wait..."
+        
+        return(HTML(paste0("Iteration: ", myit, "<br>Progress Complete: ", round(100 * values$iteration / values$total_iterations), "%")))
     })
     
+    output$download <- downloadHandler(
+        filename = function() { paste("neural_", input$content_upload$name) },
+        content = function(file) {
+            save.image(im = neural_result(), file = file)
+        }
+    )
 }
 
 shinyApp(ui = ui, server = server)
