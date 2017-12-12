@@ -312,7 +312,7 @@ server <- function(input, output, session) {
     })
     
     output$download <- downloadHandler(
-        filename = function() { paste("neural_", input$content_upload$name) },
+        filename = function() { paste0("neural_", input$content_upload$name) },
         content = function(file) {
             save.image(im = neural_result(), file = file)
         }
