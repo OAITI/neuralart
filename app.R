@@ -40,14 +40,12 @@ ui <- fluidPage(theme = shinytheme("cerulean"),
                         
                         hr(),
                         
-                        fluidRow(
-                            column(6,
-                                   shinyjs::disabled(actionButton("begin", "Begin Algorithm", icon = icon("picture-o")))
-                            ),
-                            column(6,
-                                   shinyjs::disabled(downloadButton("download", "Download Image"))
-                            )
-                        )
+                        shinyjs::disabled(actionButton("begin", "Begin Algorithm", icon = icon("picture-o"))),
+                        
+                        hr(),
+                        
+                        shinyjs::disabled(downloadButton("download", "Download Image")),
+                        shinyjs::disabled(downloadButton("download_gif", "Download GIF"))
                     ),
                     
                     mainPanel(
@@ -96,7 +94,6 @@ server <- function(input, output, session) {
         
         myfiles <- dir(result_dir)[grep(paste0(basename(values$content_file), "_", basename(values$style_file), "_checkpoint__"), dir(result_dir))]
         mysplit <- as.numeric(sapply(strsplit(gsub(".png", "", myfiles), "__"), `[`, 2))
-        #mysplit <- mysplit[-which.max(mysplit)]
         
         newest <- myfiles[which.max(mysplit)]
         Sys.sleep(.1)
@@ -108,8 +105,11 @@ server <- function(input, output, session) {
                 file.copy(final_file, result_file, overwrite = TRUE)
                 values$iteration <- values$total_iterations
                 
-                files_checkpoint <- file.path(result_dir, myfiles)
+                files_checkpoint <- file.path(result_dir, myfiles[order(mysplit)])
+                system(paste0("convert -delay 20 -loop 0 ", paste(files_checkpoint, collapse = " "), " ", file.path(result_dir, paste0(basename(values$content_file), "_", basename(values$style_file), "_final.gif"))))
                 sapply(files_checkpoint, file.remove)
+                
+                shinyjs::enable("download_gif")
             }
         } else if (length(mysplit) > 0 && !is.na(max(mysplit)) && values$iteration < max(mysplit)) {
             values$iteration <- max(mysplit)
@@ -279,6 +279,8 @@ server <- function(input, output, session) {
     output$result_img <- renderImage({
         if (values$iteration < 0) {
             shinyjs::disable("download")
+            shinyjs::disable("download_gif")
+            
             
             return(list(
                 src = "images/white.png",
