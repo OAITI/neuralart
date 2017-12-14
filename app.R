@@ -5,7 +5,7 @@ library(png)
 library(shinycssloaders)
 library(shinyBS)
 library(shinyjs)
-library(imager)
+library(magick)
 
 tensorflow_activate_path <- "~/Documents/Python/tensorflow/bin/activate"
 
@@ -84,6 +84,7 @@ server <- function(input, output, session) {
     
     result_dir <- tempdir()
     result_file <- tempfile(fileext = ".png", tmpdir = result_dir)
+    gif_file <- tempfile(fileext = ".gif", tmpdir = result_dir)
     
     file_copy_res <- file.copy("images/white.png", result_file, overwrite = TRUE)
     
@@ -106,9 +107,11 @@ server <- function(input, output, session) {
                 values$iteration <- values$total_iterations
                 
                 files_checkpoint <- file.path(result_dir, myfiles[order(mysplit)])
-                system(paste0("convert -delay 20 -loop 0 ", paste(files_checkpoint, collapse = " "), " ", file.path(result_dir, paste0(basename(values$content_file), "_", basename(values$style_file), "_final.gif"))))
+                gif_path <- file.path(result_dir, paste0(basename(values$content_file), "_", basename(values$style_file), "_final.gif"))
+                system(paste0("convert -delay 20 -loop 0 ", paste(files_checkpoint, collapse = " "), " ", gif_path))
                 sapply(files_checkpoint, file.remove)
                 
+                file.copy(gif_path, gif_file)
                 shinyjs::enable("download_gif")
             }
         } else if (length(mysplit) > 0 && !is.na(max(mysplit)) && values$iteration < max(mysplit)) {
@@ -128,7 +131,8 @@ server <- function(input, output, session) {
         }
     })
     
-    neural_result <- reactiveFileReader(100, session, result_file, load.image)
+    neural_result <- reactiveFileReader(100, session, result_file, image_read)
+    gif_result <- reactiveFileReader(100, session, gif_file, image_read)
     
     observeEvent(input$begin, { 
         if (values$begin_flag) {
@@ -153,8 +157,18 @@ server <- function(input, output, session) {
             
             system("killall python")
             
-            myfiles <- file.path(result_dir, dir(result_dir)[grep("checkpoint__", dir(result_dir))])
-            sapply(myfiles, file.remove)
+            myfiles <- dir(result_dir)[grep(paste0(basename(values$content_file), "_", basename(values$style_file), "_checkpoint__"), dir(result_dir))]
+            mysplit <- as.numeric(sapply(strsplit(gsub(".png", "", myfiles), "__"), `[`, 2))
+            
+            gif_path <- file.path(result_dir, paste0(basename(values$content_file), "_", basename(values$style_file), "_final.gif"))
+            
+            files_checkpoint <- file.path(result_dir, myfiles[order(mysplit)])
+            system(paste0("convert -delay 20 -loop 0 ", paste(files_checkpoint, collapse = " "), " ", file.path(result_dir, paste0(basename(values$content_file), "_", basename(values$style_file), "_final.gif"))))
+            sapply(files_checkpoint, file.remove)
+            
+            file.copy(gif_path, gif_file)
+            
+            shinyjs::enable("download_gif")
         }
     })
     
@@ -192,11 +206,9 @@ server <- function(input, output, session) {
         fileext <- tools::file_ext(myimg_path)
         values$content_ext <- fileext
         
-        myimg <- load.image(myimg_path)
-        width_fac <- max(1, width(myimg) / 500)
-        
-        new_img <- resize(myimg, round(width(myimg) / width_fac), round(height(myimg) / width_fac))
-        save.image(new_img, file = myimg_path)
+        myimg <- image_read(myimg_path)
+        new_img <- image_scale(myimg, min(image_info(myimg)$width, 500))
+        image_write(new_img, path = myimg_path)
         
         file.copy(myimg_path, values$content_file, overwrite = TRUE)
         
@@ -215,9 +227,10 @@ server <- function(input, output, session) {
             ))
         }
         
-        myratio <- dim(myimg)[1] / dim(myimg)[2]
-        height <- min(250, height(myimg))
-        width <- min(round(height * myratio), width(myimg))
+        myinfo <- image_info(myimg)
+        myratio <- myinfo$width / myinfo$height
+        height <- min(250, myinfo$height)
+        width <- min(round(height * myratio), myinfo$width)
         
         list(
             src = values$content_file,
@@ -249,7 +262,7 @@ server <- function(input, output, session) {
         fileext <- tools::file_ext(myimg_path)
         values$style_ext <- fileext
         
-        return(load.image(myimg_path))
+        return(image_read(myimg_path))
     })
     
     output$style_img <- renderImage({
@@ -264,9 +277,10 @@ server <- function(input, output, session) {
             ))
         }
         
-        myratio <- dim(myimg)[1] / dim(myimg)[2]
-        height <- min(250, height(myimg))
-        width <- min(round(height * myratio), width(myimg))
+        myinfo <- image_info(myimg)
+        myratio <- myinfo$width / myinfo$height
+        height <- min(250, myinfo$height)
+        width <- min(round(height * myratio), myinfo$width)
         
         list(
             src = values$style_file,
@@ -281,7 +295,6 @@ server <- function(input, output, session) {
             shinyjs::disable("download")
             shinyjs::disable("download_gif")
             
-            
             return(list(
                 src = "images/white.png",
                 contentType = "image/png",
@@ -294,9 +307,10 @@ server <- function(input, output, session) {
         
         myimg <- neural_result()
         
-        myratio <- dim(myimg)[1] / dim(myimg)[2]
-        height <- min(350, height(myimg))
-        width <- min(round(height * myratio), width(myimg))
+        myinfo <- image_info(myimg)
+        myratio <- myinfo$width / myinfo$height
+        height <- min(350, myinfo$height)
+        width <- min(round(height * myratio), myinfo$width)
         
         list(
             src = result_file,
@@ -316,7 +330,14 @@ server <- function(input, output, session) {
     output$download <- downloadHandler(
         filename = function() { paste0("neural_", input$content_upload$name) },
         content = function(file) {
-            save.image(im = neural_result(), file = file)
+            image_write(im = neural_result(), path = file)
+        }
+    )
+    
+    output$download_gif <- downloadHandler(
+        filename = function() { paste0("neural_", input$content_upload$name, ".gif") },
+        content = function(file) {
+            image_write(im = gif_result(), path = file)
         }
     )
 }
