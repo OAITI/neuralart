@@ -7,7 +7,7 @@ library(shinyBS)
 library(shinyjs)
 library(magick)
 
-tensorflow_activate_path <- "/home/shiny/Documents/Python/tensorflow/bin/activate"
+tensorflow_activate_path <- "~/Documents/Python/tensorflow/bin/activate"
 
 ## Set images resource path
 addResourcePath("images", "images")
