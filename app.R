@@ -7,7 +7,7 @@ library(shinyBS)
 library(shinyjs)
 library(magick)
 
-tensorflow_activate_path <- "~/Documents/Python/tensorflow/bin/activate"
+tensorflow_activate_path <- "/home/shiny/Documents/Python/tensorflow/bin/activate"
 
 ## Set images resource path
 addResourcePath("images", "images")
@@ -103,15 +103,27 @@ server <- function(input, output, session) {
             if (file.exists(final_file)) {
                 Sys.sleep(.1)
                 
+                final_checkpoint <- paste0(basename(values$content_file), "_", basename(values$style_file), "_checkpoint__", values$total_iterations, ".png")
+                
                 file.copy(final_file, result_file, overwrite = TRUE)
+                file.copy(final_file, file.path(result_dir, final_checkpoint), overwrite = TRUE)
+                
                 values$iteration <- values$total_iterations
                 
-                files_checkpoint <- file.path(result_dir, myfiles[order(mysplit)])
+                myfiles <- dir(result_dir)[grep(paste0(basename(values$content_file), "_", basename(values$style_file), "_checkpoint__"), dir(result_dir))]
+                myfiles <- c(myfiles, final_checkpoint)
+                mysplit <- as.numeric(sapply(strsplit(gsub(".png", "", myfiles), "__"), `[`, 2))
+                
+                files_checkpoint <- file.path(result_dir, myfiles)
+                
+                myseq <- seq(min(mysplit), max(mysplit), length.out = min(11, length(mysplit)))
+                myvec <- sapply(myseq, function(x) { which.min(abs(mysplit - x)) })
+                
                 gif_path <- file.path(result_dir, paste0(basename(values$content_file), "_", basename(values$style_file), "_final.gif"))
-                system(paste0("convert -delay 20 -loop 0 ", paste(files_checkpoint, collapse = " "), " ", gif_path))
+                system(paste0("convert -delay 20 -loop 0 ", paste(files_checkpoint[myvec], collapse = " "), " ", gif_path))
                 sapply(files_checkpoint, file.remove)
                 
-                file.copy(gif_path, gif_file)
+                file.copy(gif_path, gif_file, overwrite = TRUE)
                 shinyjs::enable("download_gif")
             }
         } else if (length(mysplit) > 0 && !is.na(max(mysplit)) && values$iteration < max(mysplit)) {
@@ -162,11 +174,14 @@ server <- function(input, output, session) {
             
             gif_path <- file.path(result_dir, paste0(basename(values$content_file), "_", basename(values$style_file), "_final.gif"))
             
-            files_checkpoint <- file.path(result_dir, myfiles[order(mysplit)])
-            system(paste0("convert -delay 20 -loop 0 ", paste(files_checkpoint, collapse = " "), " ", file.path(result_dir, paste0(basename(values$content_file), "_", basename(values$style_file), "_final.gif"))))
-            sapply(files_checkpoint, file.remove)
+            myseq <- seq(min(mysplit), max(mysplit), length.out = min(11, length(mysplit)))
+            myvec <- sapply(myseq, function(x) { which.min(abs(mysplit - x)) })
             
-            file.copy(gif_path, gif_file)
+            files_checkpoint <- file.path(result_dir, myfiles)
+            system(paste0("convert -delay 20 -loop 0 ", paste(files_checkpoint[myvec], collapse = " "), " ", file.path(result_dir, paste0(basename(values$content_file), "_", basename(values$style_file), "_final.gif"))))
+            
+            file.copy(gif_path, gif_file, overwrite = TRUE)
+            sapply(files_checkpoint, file.remove)
             
             shinyjs::enable("download_gif")
         }
