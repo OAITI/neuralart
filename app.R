@@ -15,6 +15,8 @@ addResourcePath("images", "images")
 style <- file.path("images", "style", dir("images/style"))
 names(style) <- tools::toTitleCase(gsub(".jpg|.png", "", basename(style)))
 
+gallery <- image_read("images/gallery.png")
+
 ui <- fluidPage(theme = shinytheme("cerulean"),
                 
                 useShinyjs(),
@@ -58,24 +60,32 @@ ui <- fluidPage(theme = shinytheme("cerulean"),
                         bsModal(id = 'waitModal', title = 'Neural Art Algorithm Cannot Be Started', trigger = '',
                                 size = 'medium', 'Sorry, but there is a current neural art process computing. Please wait a minute and then try again.'),
                         
-                        fluidRow(
-                            column(6,
-                                   h4("Content Image"),
-                                   imageOutput("content_img", height = "250px")
+                        tabsetPanel(
+                            tabPanel("Neural Art",
+                                     fluidRow(
+                                         column(6,
+                                                h4("Content Image"),
+                                                imageOutput("content_img", height = "250px")
+                                         ),
+                                         column(6,
+                                                h4("Style Image"),
+                                                withSpinner(imageOutput("style_img", width = "250px"))
+                                         )
+                                     ),
+                                     
+                                     hr(),
+                                     
+                                     h3("Neural Art Image"),
+                                     conditionalPanel(condition = "input.begin", 
+                                                      h4(uiOutput("iteration")),
+                                                      imageOutput("result_img", width = "350px")
+                                     )
                             ),
-                            column(6,
-                                   h4("Style Image"),
-                                   withSpinner(imageOutput("style_img", width = "250px"))
+                            tabPanel("Style Gallery",
+                                     img(src = "images/gallery.png", width = "800px")
                             )
-                        ),
-                        
-                        hr(),
-                        
-                        h3("Neural Art Image"),
-                        conditionalPanel(condition = "input.begin", 
-                                         h4(uiOutput("iteration")),
-                                         imageOutput("result_img", width = "350px")
                         )
+                        
                     )
                 )
 )
