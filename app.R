@@ -19,6 +19,8 @@ gallery <- image_read("images/gallery.png")
 
 ui <- fluidPage(theme = shinytheme("cerulean"),
                 
+                includeCSS("css/styles.css"),
+                
                 useShinyjs(),
                 
                 titlePanel("Neural Art Image Creator"),
