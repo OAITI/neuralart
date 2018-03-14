@@ -7,6 +7,8 @@ library(shinyBS)
 library(shinyjs)
 library(magick)
 
+options(shiny.maxRequestSize = 30 * 1024^2)
+
 tensorflow_activate_path <- "~/Documents/Python/tensorflow/bin/activate"
 
 ## Set images resource path
